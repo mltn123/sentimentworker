@@ -1,0 +1,1 @@
+run bash python worker.py

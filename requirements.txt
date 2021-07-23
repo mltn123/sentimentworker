@@ -1,0 +1,16 @@
+beautifulsoup4==4.9.3
+feedparser==6.0.8
+flashtext==2.7
+lxml==4.6.3
+matplotlib==3.4.2
+nltk==3.6.2
+openpyxl==3.0.7
+pandas==1.2.5
+textblob==0.15.3
+textblob-de==0.4.3
+gunicorn
+asyncio
+httpx
+cchardet
+gevent
+psycopg2
