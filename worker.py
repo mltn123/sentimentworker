@@ -2,27 +2,30 @@ from bs4 import BeautifulSoup
 import bs4
 import lxml
 import feedparser
-from textblob_de import TextBlobDE as TextBlob
+# from textblob_de import TextBlobDE as TextBlob
 from pandas.core.common import flatten
 import pandas as pd
-import matplotlib.pyplot as plt
 from datetime import date
 from datetime import datetime
 import statistics
-import openpyxl
-from openpyxl import load_workbook
+# import openpyxl
+# from openpyxl import load_workbook
 from flashtext import KeywordProcessor
 import asyncio
 import httpx
-import time
-import itertools
-import cchardet
-import gevent
+#import time
+#import itertools
+# import cchardet
+# import gevent
 import os
 from bs4 import SoupStrainer
 import psycopg2
 import os
 import urllib.parse as urlparse
+import spacy
+from spacy_sentiws import spaCySentiWS
+
+
 
 url = urlparse.urlparse(os.environ['DATABASE_URL'])
 dbname = url.path[1:]
@@ -40,35 +43,34 @@ con = psycopg2.connect(
             port=port
             )
 dbCursor = con.cursor()
-print(dbname)
+#print(dbname)
 
-sqlCreateTable  = 'CREATE TABLE IF NOT EXISTS crawldata(date varchar(128), sentimentcdu numeric, sentimentgruene numeric, sentimentspd numeric, sentimentfdp numeric, sentimentafd numeric);'
+sqlCreateTable  = 'CREATE TABLE IF NOT EXISTS crawldata(date varchar(128), sentimentcdu numeric, sentimentgruene numeric, sentimentspd numeric, sentimentfdp numeric, sentimentafd numeric, linkscdu varchar(2048),linksgruene varchar(2048),linksspd varchar(2048),linksfdp varchar(2048),linksafd varchar(2048));'
+# sqlAddColumns = 'ALTER TABLE crawldata ADD COLUMN IF NOT EXISTS linkscdu varchar(2048),ADD COLUMN IF NOT EXISTS linksgruene varchar(2048),ADD COLUMN IF NOT EXISTS linksspd varchar(2048),ADD COLUMN IF NOT EXISTS linksfdp varchar(2048),ADD COLUMN IF NOT EXISTS linksafd varchar(2048)'
+# sqlaltercolumns= 'ALTER TABLE crawldata ALTER COLUMN linkscdu TYPE varchar(2048),ALTER COLUMN linksgruene TYPE varchar(2048),ALTER COLUMN linksspd TYPE varchar(2048),ALTER COLUMN linksfdp TYPE varchar(2048),ALTER COLUMN linksafd TYPE varchar(2048)'
 #sqlCreateTable  = 'CREATE TABLE crawldata(date,sentimentcdu,sentimentgruene,sentimentspd,sentimentfdp,sentimentafd);'
 dbCursor.execute(sqlCreateTable);
-print('test')
+# dbCursor.execute(sqlAddColumns);
+# dbCursor.execute(sqlaltercolumns);
 
-#server = app.server
-# ran = 0
-# import time
-# # data = pd.read_excel('Sentiments.xlsx')
-#
-#
-# data['Tag'] = pd.to_datetime(data['Tag'], format='%d/%m/%Y %H:%M:%S')
-#
-# data.sort_values('Tag', inplace=True)
-# starttime = time.time()
 
 
 
 rss_urls=['https://www.spiegel.de/politik/index.rss','https://www.tagesschau.de/xml/rss2/','https://www.n-tv.de/politik/rss','https://rss.sueddeutsche.de/rss/Politik']
 content_cdu = []
+links_cdu=[]
 content_gruene= []
+links_gruene=[]
 content_fdp = []
+links_fdp=[]
 content_spd = []
+links_spd=[]
 content_afd = []
+links_afd=[]
 content= []
 content_clean=[]
 links = []
+linklist=[]
 tagesschau_links= []
 ntv_links = []
 sueddeutsche_links = []
@@ -83,6 +85,9 @@ h = {'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
 
 whitelist = [
     'p'
+    # 'article__text',
+    # 'article-body',
+    # 'content'
 ]
 async def get_content(index: int, url: str) -> str:
     async with httpx.AsyncClient(timeout=None) as client:
@@ -90,9 +95,10 @@ async def get_content(index: int, url: str) -> str:
             response = await client.get(url)
             #print(url)
         except:
-            print(f'Error response {exc.response.status_code} while requesting {exc.request.url!r}.')
+            print(f'Error response while requesting.')
         #soup = bs4.BeautifulSoup(response.text, 'lxml', parse_only = SoupStrainer('p'))
-        content.append([t for t in bs4.BeautifulSoup(response.text, 'lxml',parse_only = SoupStrainer('p')).find_all(text=True) if t.parent.name in whitelist])
+        content.append((url,[t for t in bs4.BeautifulSoup(response.text, 'lxml',parse_only = SoupStrainer('p')).find_all(text=True) if t.parent.name in whitelist]))
+
         #del soup
 
 async def main():
@@ -488,13 +494,12 @@ async def main():
                 'FDP': keyword_fdp,
                 'SPD': keyword_spd,
                 'AFD': keyword_afd,
-
-
-
     }
 
 
-
+    nlp = spacy.load("de_core_news_md")
+    sentiws = spaCySentiWS(sentiws_path='data/sentiws/')
+    nlp.add_pipe(sentiws)
     sentiment_cdu = []
     sentiment_gruene = []
     sentiment_fdp = []
@@ -520,82 +525,87 @@ async def main():
     for index, link in enumerate(links):
         task_list.append(get_content(index, link))
     await asyncio.gather(*task_list)
-    print('DEBUG')
+
     del task_list
-    for i in itertools.chain.from_iterable(content):
+    # for idx, i in enumerate(itertools.chain.from_iterable(content)):
+    for idx , i in enumerate(content):
+        #print(content[idx][0])
         keywords_found= keyword_processor.extract_keywords(str(i))
-        #print(keywords_found)
-        if keywords_found.count('Gruene') >= 1:
-            content_gruene.append(i)
-        if keywords_found.count('CDU') >= 1:
-            content_cdu.append(i)
-        if keywords_found.count('FDP') >= 1:
-            content_fdp.append(i)
-        if keywords_found.count('SPD') >= 1:
-            content_spd.append(i)
-        if keywords_found.count('AFD') >= 1:
-            content_afd.append(i)
+        if keywords_found.count('Gruene') >= 2:
+            content_gruene.append((content[idx][0],content[idx][1]))
+        if keywords_found.count('CDU') >= 2:
+            content_cdu.append((content[idx][0],content[idx][1]))
+        if keywords_found.count('FDP') >= 2:
+            content_fdp.append((content[idx][0],content[idx][1]))
+        if keywords_found.count('SPD') >= 2:
+            content_spd.append((content[idx][0],content[idx][1]))
+        if keywords_found.count('AFD') >= 2:
+            content_afd.append((content[idx][0],content[idx][1]))
+
 
 
 
 
     for cdu,gruene,fdp,spd,afd in zip(content_cdu, content_gruene, content_fdp, content_spd, content_afd ):
-        blob= TextBlob(str(cdu))
-        sentiment_cdu.append(blob.sentiment.polarity)
-        blob = TextBlob(str(gruene))
-        sentiment_gruene.append(blob.sentiment.polarity)
-        blob = TextBlob(str(fdp))
-        sentiment_fdp.append(blob.sentiment.polarity)
-        blob = TextBlob(str(spd))
-        sentiment_spd.append(blob.sentiment.polarity)
-        blob = TextBlob(str(afd))
-        sentiment_afd.append(blob.sentiment.polarity)
+        blob= nlp(str(cdu[1:]))
+        for token in blob:
+            #print(token)
+            if token._.sentiws is not None:
+                sentiment_cdu.append(token._.sentiws)
+        links_cdu.append(str(cdu[0]))
+        blob = nlp(str(gruene[1:]))
+        for token in blob:
+            if token._.sentiws is not None:
+                sentiment_gruene.append(token._.sentiws)
+        links_gruene.append(str(gruene[0]))
+        blob = nlp(str(fdp[1:]))
+        for token in blob:
+            if token._.sentiws is not None:
+                sentiment_fdp.append(token._.sentiws)
+        links_fdp.append(str(fdp[0]))
+        blob = nlp(str(spd[1:]))
+        for token in blob:
+            if token._.sentiws is not None:
+                sentiment_spd.append(token._.sentiws)
+        links_spd.append(str(spd[0]))
+        blob = nlp(str(afd[1:]))
+        for token in blob:
+            if token._.sentiws is not None:
+                sentiment_afd.append(token._.sentiws)
+        links_afd.append(str(afd[0]))
         #print(sentiment_cdu)
 
-    if not sentiment_cdu:
-        sentiment_cdu.append(0)
-    if not sentiment_gruene:
-        sentiment_gruene.append(0)
-    if not sentiment_fdp:
-        sentiment_fdp.append(0)
-    if not sentiment_fdp:
-        sentiment_spd.append(0)
-    if not sentiment_afd:
-        sentiment_afd.append(0)
+    if sentiment_cdu:
+        meancdu = statistics.mean(sentiment_cdu)
+    if sentiment_gruene:
+        meangruene = statistics.mean(sentiment_gruene)
+    if sentiment_fdp:
+        meanfdp = statistics.mean(sentiment_fdp)
+    if sentiment_spd:
+        meanspd = statistics.mean(sentiment_spd)
+    if sentiment_afd:
+        meanafd = statistics.mean(sentiment_afd)
 
     #today = date.today()
     now = datetime.now()
     today = str(now.strftime('%d/%m/%Y %H:%M:%S'))
     #sqlinsert = 'INSERT INTO crawldata (date,sentimentcdu,sentimentgruene,sentimentspd,sentimentfdp,sentimentafd) VALUES ();'
     #sqlinsert = 'INSERT INTO crawldata VALUES ();'
-    meancdu = statistics.mean(sentiment_cdu)
-    meangruene = statistics.mean(sentiment_gruene)
-    meanfdp = statistics.mean(sentiment_fdp)
-    meanspd = statistics.mean(sentiment_spd)
-    meanafd = statistics.mean(sentiment_afd)
-    mean = (today,meancdu,meangruene,meanfdp,meanspd,meanafd)
+
+
+
+
+    mean = (today,meancdu,meangruene,meanfdp,meanspd,meanafd,links_cdu,links_gruene,links_spd,links_fdp,links_afd)
 
 
     add_data =  ("INSERT INTO crawldata "
-               "(date,sentimentcdu,sentimentgruene,sentimentspd,sentimentfdp,sentimentafd) "
-               "VALUES (%s, %s, %s, %s, %s, %s)")
-    #dbCursor.execute("""INSERT INTO crawldata (today,meancdu,meangruene,meanfdp,meanspd,meanafd) VALUES (%s, %s, %s, %s, %s, %s);""")
+               "(date,sentimentcdu,sentimentgruene,sentimentspd,sentimentfdp,sentimentafd,linkscdu,linksgruene,linksspd,linksfdp,linksafd) "
+               "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)")
+
     dbCursor.execute(add_data, mean)
     con.commit()
-    #dbCursor.execute(sqlinsert);
-    # postgreSQL_select_Query = "select * from crawldata"
-    #
-    # dbCursor.execute(postgreSQL_select_Query)
-    # print("Selecting rows from mobile table using cursor.fetchall")
-    # mobile_records = dbCursor.fetchall()
-    #
-    # print("Print each row and it's columns values")
-    # for row in mobile_records:
-    #     print(row)
 
 
-    # ws.append([today,statistics.mean(sentiment_cdu),statistics.mean(sentiment_gruene),statistics.mean(sentiment_fdp),statistics.mean(sentiment_spd),statistics.mean(sentiment_afd)])
-    # wb.save('Sentiments.xlsx')
 
 
 if __name__ == '__main__':
