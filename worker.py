@@ -24,7 +24,7 @@ import os
 import urllib.parse as urlparse
 import spacy
 from spacy_sentiws import spaCySentiWS
-
+import numpy as np
 
 
 url = urlparse.urlparse(os.environ['DATABASE_URL'])
@@ -45,7 +45,7 @@ con = psycopg2.connect(
 dbCursor = con.cursor()
 #print(dbname)
 
-sqlCreateTable  = 'CREATE TABLE IF NOT EXISTS crawldata(date varchar(128), sentimentcdu numeric, sentimentgruene numeric, sentimentspd numeric, sentimentfdp numeric, sentimentafd numeric, linkscdu varchar(2048),linksgruene varchar(2048),linksspd varchar(2048),linksfdp varchar(2048),linksafd varchar(2048));'
+sqlCreateTable  = 'CREATE TABLE IF NOT EXISTS crawldata(date varchar(128), sentimentcdu numeric, sentimentgruene numeric, sentimentspd numeric, sentimentfdp numeric, sentimentafd numeric, linkscdu text,linksgruene text,linksspd text,linksfdp text,linksafd text);'
 # sqlAddColumns = 'ALTER TABLE crawldata ADD COLUMN IF NOT EXISTS linkscdu varchar(2048),ADD COLUMN IF NOT EXISTS linksgruene varchar(2048),ADD COLUMN IF NOT EXISTS linksspd varchar(2048),ADD COLUMN IF NOT EXISTS linksfdp varchar(2048),ADD COLUMN IF NOT EXISTS linksafd varchar(2048)'
 # sqlaltercolumns= 'ALTER TABLE crawldata ALTER COLUMN linkscdu TYPE varchar(2048),ALTER COLUMN linksgruene TYPE varchar(2048),ALTER COLUMN linksspd TYPE varchar(2048),ALTER COLUMN linksfdp TYPE varchar(2048),ALTER COLUMN linksafd TYPE varchar(2048)'
 #sqlCreateTable  = 'CREATE TABLE crawldata(date,sentimentcdu,sentimentgruene,sentimentspd,sentimentfdp,sentimentafd);'
@@ -56,19 +56,24 @@ dbCursor.execute(sqlCreateTable);
 
 
 
-rss_urls=['https://www.spiegel.de/politik/index.rss','https://www.tagesschau.de/xml/rss2/','https://www.n-tv.de/politik/rss','https://rss.sueddeutsche.de/rss/Politik']
+rss_urls=['https://www.spiegel.de/politik/index.rss','https://www.tagesschau.de/xml/rss2/','https://www.n-tv.de/politik/rss','https://rss.sueddeutsche.de/rss/Politik','https://www.faz.net/rss/aktuell/politik/']
 content_cdu = []
-links_cdu=[]
 content_gruene= []
-links_gruene=[]
 content_fdp = []
-links_fdp=[]
 content_spd = []
-links_spd=[]
 content_afd = []
+links_cdu=[]
+links_gruene=[]
+links_fdp=[]
+links_spd=[]
 links_afd=[]
+weight_cdu=[]
+weight_gruene=[]
+weight_fdp=[]
+weight_spd=[]
+weight_afd=[]
 content= []
-content_clean=[]
+
 links = []
 linklist=[]
 tagesschau_links= []
@@ -92,10 +97,16 @@ whitelist = [
 async def get_content(index: int, url: str) -> str:
     async with httpx.AsyncClient(timeout=None) as client:
         try:
-            response = await client.get(url)
+            if ".faz.net" in url:
+                url+="?printPagedArticle=true"
+                response = await client.get(url)
+                #print(url)
+            else:
+                response = await client.get(url)
             #print(url)
         except:
             print(f'Error response while requesting.')
+            response ="0"
         #soup = bs4.BeautifulSoup(response.text, 'lxml', parse_only = SoupStrainer('p'))
         content.append((url,[t for t in bs4.BeautifulSoup(response.text, 'lxml',parse_only = SoupStrainer('p')).find_all(text=True) if t.parent.name in whitelist]))
 
@@ -188,7 +199,8 @@ async def main():
     'Volker Wissing',
     'FDP',
     'Freie Demokratische Partei',
-    'FDP-'
+    'FDP-',
+    '(FDP)',
     ]
 
     keyword_cdu = [
@@ -445,10 +457,12 @@ async def main():
         'Markus Söder',
         'Annegret Kramp-Karrenbauer',
         'Ursula von der Leyen',
-        'Horst Seehofer'
-        'CDU-'
-        'CSU-'
-        'CDU/CSU-'
+        'Horst Seehofer',
+        'CDU-',
+        'CSU-',
+        'CDU/CSU-',
+        'Unionskanzlerkandidat',
+        '(CDU)',
         ]
 
     keyword_gruene = ['Luise Amtsberg',
@@ -460,7 +474,7 @@ async def main():
         'Irene Mihalic','Claudia Müller','Beate Müller-Gemmeke','Ingrid Nestle','Konstantin von Notz','Omid Nouripour','Friedrich Ostendorff'
         'Cem Özdemir','Lisa Paus','Filiz Polat','Tabea Rößner','Claudia Roth','Manuela Rottmann','Corinna Rüffer','Manuel Sarrazin','Ulle Schauws','Frithjof Schmidt'
         'Stefan Schmidt','Charlotte Schneidewind-Hartnagel','Kordula Schulz-Asche','Wolfgang Strengmann-Kuhn','Margit Stumpp','Markus Tressel','Jürgen Trittin'
-        'Julia Verlinden','Daniela Wagner','Beate Walter-Rosenheimer','Wolfgang Wetzel','Gerhard Zickenheiner','Die Grünen','Grünen','Grünen-']
+        'Julia Verlinden','Daniela Wagner','Beate Walter-Rosenheimer','Wolfgang Wetzel','Gerhard Zickenheiner','Die Grünen','Grünen','Grünen-','(Die Grünen)']
 
 
     keyword_spd = ['Niels Annen', 'Ingrid Arndt-Bauer', 'Bela Bach', 'Heike Baehrens', 'Ulrike Bahr', 'Nezahat Baradari','Katarina Barley','Doris Barnett','Matthias Bartke',
@@ -483,14 +497,26 @@ async def main():
     'Stefan Schwartze','Andreas Schwarz','Rita Schwarzelühr-Sutter','Rainer Spiering','Svenja Stadler','Martina Stamm-Fibich',
     'Sonja Amalie Steffen','Mathias Stein','Kerstin Tack','Claudia Tausend','Michael Thews','Markus Töns','Carsten Träger','Ute Vogt',
     'Marja-Liisa Völlers','Dirk Vöpel','Gabi Weber','Joe Weingarten','Bernd Westphal','Dirk Wiese','Gülistan Yüksel','Dagmar Ziegler',
-    'Stefan Zierke','Jens Zimmermann','SPD','sozialdemokraten','Sozialdemokratische Partei Deutschlands'
+    'Stefan Zierke','Jens Zimmermann','SPD','sozialdemokraten','(SPD)','Sozialdemokratische Partei Deutschlands'
     ]
 
-    keyword_afd = ['Dr. Bernd Baumann','Marc Bernhard','Andreas Bleck','Peter Boehringer','Stephan Brandner','Jürgen Braun','Marcus Bühl','Matthias Büttner','Petr Bystron','Tino Chrupalla','Joana Cotar','Gottfried Curio','Siegbert F. Droese','Thomas Ehrhorn','Berengar Elsner von Gronow','Dr. Michael Espendiller','Peter Felser','Dietmar Friedhoff','Dr. Anton Friesen','Markus Frohnmaier','Dr. Götz Frömming','Dr. Alexander Gauland','Prof. Dr. med. Axel Gehrke','Albrecht Glaser','Franziska Gminder','Wilhelm von Gottberg','Kay Gottschalk','Amin-Paulus Hampel','Mariana Harder-Kühnel','Dr. Roland Hartwig','Jochen Haug','Martin Hebner','Udo Hemmelgarn','Waldemar Herdt','Martin Hess','Heiko Hessenkemper','Karsten Hilse','Nicole Höchst','Martin Hohmann','Bruno Hollnagel','Leif-Erik Holm','Johannes Huber','Fabian Jacobi','Marc Jongen','Jens Kestner','Stefan Keuter','Norbert Kleinwächter','Enrico Komning','Jörn König','Steffen Kotré','Rainer Kraft','Rüdiger Lucassen','Frank Magnitz','Lothar Maier','Jens Maier','Birgit Malsack-Winkemann','Corinna Miazga','Andreas Mrosek','Hansjörg Müller','Volker Münz','Sebastian Münzenmaier','Christoph Neumann','Jan Nolte','Ulrich Oehme','Gerold Otten','Tobias Matthias Peterka','Paul Viktor Podolay','Jürgen Pohl','Stephan Protschka','Martin Reichardt','Martin E. Renner','Roman Reusch','Ulrike Schielke-Ziesing','Robby Schlund','Jörg Schneider','Uwe Schulz','Thomas Seitz','Martin Sichert','Detlev Spangenberg','Dirk Spaniel','René Springer','Beatrix von Storch','Alice Weidel','Harald Weyel','Wolfgang Wiehle','Heiko Wildberg','Christian Wirth','Uwe Witt','AFD','afd','AfD','Alternative für Deutschland']
+    keyword_afd = ['Dr. Bernd Baumann','Marc Bernhard','Andreas Bleck','Peter Boehringer','Stephan Brandner','Jürgen Braun','Marcus Bühl','Matthias Büttner','Petr Bystron','Tino Chrupalla','Joana Cotar','Gottfried Curio','Siegbert F. Droese','Thomas Ehrhorn','Berengar Elsner von Gronow','Dr. Michael Espendiller','Peter Felser','Dietmar Friedhoff','Dr. Anton Friesen','Markus Frohnmaier','Dr. Götz Frömming','Dr. Alexander Gauland','Prof. Dr. med. Axel Gehrke','Albrecht Glaser','Franziska Gminder','Wilhelm von Gottberg','Kay Gottschalk','Amin-Paulus Hampel','Mariana Harder-Kühnel','Dr. Roland Hartwig','Jochen Haug','Martin Hebner','Udo Hemmelgarn','Waldemar Herdt','Martin Hess','Heiko Hessenkemper','Karsten Hilse','Nicole Höchst','Martin Hohmann','Bruno Hollnagel','Leif-Erik Holm','Johannes Huber','Fabian Jacobi','Marc Jongen','Jens Kestner','Stefan Keuter','Norbert Kleinwächter','Enrico Komning','Jörn König','Steffen Kotré','Rainer Kraft','Rüdiger Lucassen','Frank Magnitz','Lothar Maier','Jens Maier','Birgit Malsack-Winkemann','Corinna Miazga','Andreas Mrosek','Hansjörg Müller','Volker Münz','Sebastian Münzenmaier','Christoph Neumann','Jan Nolte','Ulrich Oehme','Gerold Otten','Tobias Matthias Peterka','Paul Viktor Podolay','Jürgen Pohl','Stephan Protschka','Martin Reichardt','Martin E. Renner','Roman Reusch','Ulrike Schielke-Ziesing','Robby Schlund','Jörg Schneider','Uwe Schulz','Thomas Seitz','Martin Sichert','Detlev Spangenberg','Dirk Spaniel','René Springer','Beatrix von Storch','Alice Weidel','Harald Weyel','Wolfgang Wiehle','Heiko Wildberg','Christian Wirth','Uwe Witt','AFD','afd','AfD','(AFD)','Alternative für Deutschland']
+
+    # keyword_cdu2 = [i.split(' ', 1)[1] for i in keyword_cdu if ' ' in i & ""]
+    # keyword_gruene2 = [i.split(' ', 1)[1] for i in keyword_gruene if ' ' in i]
+    # keyword_fdp2 = [i.split(' ', 1)[1] for i in keyword_fdp if ' ' in i]
+    # keyword_spd2 = [i.split(' ', 1)[1] for i in keyword_spd[:-1] if ' ' in i]
+    # keyword_afd2 = [i.split(' ', 1)[1] for i in keyword_afd[:-1] if ' ' in i]
+    #
+    # keyword_cdu = keyword_cdu + keyword_cdu2
+    # keyword_gruene = keyword_gruene + keyword_gruene2
+    # keyword_fdp = keyword_fdp + keyword_fdp2
+    # keyword_spd = keyword_spd + keyword_spd2
+    # keyword_afd = keyword_afd + keyword_afd2
 
     keyword_dict = {
                 'CDU': keyword_cdu,
-                'Gruene': keyword_gruene,
+                'Gruene':keyword_gruene,
                 'FDP': keyword_fdp,
                 'SPD': keyword_spd,
                 'AFD': keyword_afd,
@@ -512,6 +538,10 @@ async def main():
     del keyword_spd
     del keyword_afd
     del keyword_gruene
+    # del keyword_cdu2
+    # del keyword_spd2
+    # del keyword_afd2
+    # del keyword_gruene2
     feeds = []
     for url in rss_urls:
         feeds.extend(feedparser.parse(url).entries)
@@ -528,63 +558,91 @@ async def main():
 
     del task_list
     # for idx, i in enumerate(itertools.chain.from_iterable(content)):
-    for idx , i in enumerate(content):
+    for idx in range(len(content)):
         #print(content[idx][0])
-        keywords_found= keyword_processor.extract_keywords(str(i))
-        if keywords_found.count('Gruene') >= 2:
-            content_gruene.append((content[idx][0],content[idx][1]))
-        if keywords_found.count('CDU') >= 2:
-            content_cdu.append((content[idx][0],content[idx][1]))
-        if keywords_found.count('FDP') >= 2:
-            content_fdp.append((content[idx][0],content[idx][1]))
-        if keywords_found.count('SPD') >= 2:
-            content_spd.append((content[idx][0],content[idx][1]))
-        if keywords_found.count('AFD') >= 2:
-            content_afd.append((content[idx][0],content[idx][1]))
+        keywords_found= keyword_processor.extract_keywords(str(content[idx][1]))
+        count_gruene = keywords_found.count('Gruene')
+        count_cdu = keywords_found.count('CDU')
+        count_fdp = keywords_found.count('FDP')
+        count_spd = keywords_found.count('SPD')
+        count_afd = keywords_found.count('AFD')
+
+        if count_gruene >= 1:
+            content_gruene.append((content[idx][0],count_gruene,content[idx][1]))
+        if count_cdu >= 1:
+            content_cdu.append((content[idx][0],count_cdu,content[idx][1]))
+        if count_fdp >= 1:
+            content_fdp.append((content[idx][0],count_fdp,content[idx][1]))
+        if count_spd >= 1:
+            content_spd.append((content[idx][0],count_spd,content[idx][1]))
+        if count_afd >= 1:
+            content_afd.append((content[idx][0],count_afd,content[idx][1]))
 
 
 
 
 
     for cdu,gruene,fdp,spd,afd in zip(content_cdu, content_gruene, content_fdp, content_spd, content_afd ):
-        blob= nlp(str(cdu[1:]))
+        blob= nlp(str(cdu[2:]))
         for token in blob:
             #print(token)
             if token._.sentiws is not None:
                 sentiment_cdu.append(token._.sentiws)
-        links_cdu.append(str(cdu[0]))
-        blob = nlp(str(gruene[1:]))
+                weight_cdu.append(cdu[1])
+        if str(cdu[0]) not in links_cdu:
+                links_cdu.append(str(cdu[0]))
+
+        blob = nlp(str(gruene[2:]))
         for token in blob:
             if token._.sentiws is not None:
                 sentiment_gruene.append(token._.sentiws)
-        links_gruene.append(str(gruene[0]))
-        blob = nlp(str(fdp[1:]))
+                weight_gruene.append(gruene[1])
+        if str(gruene[0]) not in links_gruene:
+            links_gruene.append(str(gruene[0]))
+        blob = nlp(str(fdp[2:]))
         for token in blob:
             if token._.sentiws is not None:
                 sentiment_fdp.append(token._.sentiws)
-        links_fdp.append(str(fdp[0]))
-        blob = nlp(str(spd[1:]))
+                weight_fdp.append(fdp[1])
+        if str(fdp[0]) not in links_fdp:
+            links_fdp.append(str(fdp[0]))
+
+        blob = nlp(str(spd[2:]))
         for token in blob:
             if token._.sentiws is not None:
                 sentiment_spd.append(token._.sentiws)
-        links_spd.append(str(spd[0]))
-        blob = nlp(str(afd[1:]))
+                weight_spd.append(spd[1])
+        if str(spd[0]) not in links_spd:
+            links_spd.append(str(spd[0]))
+        blob = nlp(str(afd[2:]))
         for token in blob:
             if token._.sentiws is not None:
                 sentiment_afd.append(token._.sentiws)
-        links_afd.append(str(afd[0]))
+                weight_afd.append(afd[1])
+        if str(afd[0]) not in links_afd:
+            links_afd.append(str(afd[0]))
+
         #print(sentiment_cdu)
 
+
+
     if sentiment_cdu:
-        meancdu = statistics.mean(sentiment_cdu)
+        #meancdu = statistics.mean(sentiment_cdu)
+        print(type(sentiment_cdu))
+        print(type(weight_cdu))
+        meancdu = np.average(sentiment_cdu, weights=weight_cdu)
     if sentiment_gruene:
-        meangruene = statistics.mean(sentiment_gruene)
+        #meangruene = statistics.mean(sentiment_gruene)
+        meangruene = np.average(sentiment_gruene, weights=weight_gruene)
     if sentiment_fdp:
-        meanfdp = statistics.mean(sentiment_fdp)
+        #meanfdp = statistics.mean(sentiment_fdp)
+        meanfdp = np.average(sentiment_fdp, weights=weight_fdp)
     if sentiment_spd:
-        meanspd = statistics.mean(sentiment_spd)
+        #meanspd = statistics.mean(sentiment_spd)
+        meanspd = np.average(sentiment_spd, weights=weight_spd)
     if sentiment_afd:
-        meanafd = statistics.mean(sentiment_afd)
+        #meanafd = statistics.mean(sentiment_afd)
+        meanafd = np.average(sentiment_afd, weights=weight_afd)
 
     #today = date.today()
     now = datetime.now()
